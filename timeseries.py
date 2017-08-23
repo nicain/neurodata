@@ -1,19 +1,5 @@
 import numpy as np
 
-from allensdk.core.brain_observatory_cache import BrainObservatoryCache
-from allensdk.brain_observatory import stimulus_info as si
-
-# Settings:
-oeid = 501474098
-
-# Initializations:
-boc = BrainObservatoryCache()
-nwb_dataset = boc.get_ophys_experiment_data(oeid)
-
-# Get Data:
-stimulus_epoch_table = nwb_dataset.get_stimulus_epoch_table()
-metadata = nwb_dataset.get_metadata()
-
 SEC = SECOND = 'second'
 MS = MILLISECOND = 'millisecond'
 NONE = NONDIMENSIONAL = 'nondimensional'
@@ -22,8 +8,11 @@ TIME_UNIT_LIST = [MS, SEC, NONE]
 
 class TemporalData(object):
     
-    def __init__(self):        
+    sort_mode = 'start'
+    
+    def __init__(self, unit):        
         self._master = None
+        self._unit = unit
 
     @property
     def unit(self):
@@ -58,21 +47,46 @@ class TemporalData(object):
         self_unit_convert = float(temporal_conversion_dict[self.unit])
         other_unit_convert = float(temporal_conversion_dict[other.unit])
 
-        self_start = self[0]
-        other_start = other[0]*(other_unit_convert/self_unit_convert)
-
-        if self_start == other_start:
+        if TemporalData.sort_mode == 'start':
+            self_test = self[0]
+            other_test = other[0]
+        elif TemporalData.sort_mode == 'end':
+            self_test = self[-1]
+            other_test = other[-1]
+        elif TemporalData.sort_mode == 'duration':
+            self_test = self.duration
+            other_test = other.duration
+        elif TemporalData.sort_mode == 'middle':
+            self_test = float((self[-1] + self[0]))/2
+            other_test = float((other[-1] + other[0]))/2
+        else:
+            raise NotImplementedError
+        other_test *= (other_unit_convert/self_unit_convert)
+       
+        if self_test == other_test:
             return self.duration < other.duration
         else:
-
-            return self_start < other_start
+            return self_test < other_test
 
     def __gt__(self, other):
         return other.__lt__(self)
 
+    @staticmethod
+    def sort(input_list, how='start', **kwargs):
+        old_how = TemporalData.sort_mode
+        TemporalData.sort_mode = how
+        output_list = sorted(input_list, **kwargs)
+        TemporalData.sort_mode = old_how
+        return output_list
+
 class TimeEvent(TemporalData):
     
     def __init__(self, t, unit):
+        
+        super(TimeEvent, self).__init__(unit)
+        
+
+
         self._t = t
         self._unit = unit
 
@@ -109,11 +123,10 @@ class TimestampTimeSeries(TemporalData):
 
     def __init__(self, timestamps, unit):
         assert unit in TIME_UNIT_LIST
-        super(TimestampTimeSeries, self).__init__()
+        super(TimestampTimeSeries, self).__init__(unit)
 
     
         self._timestamps = np.array(timestamps, dtype=np.float)
-        self._unit = unit
 
     def __getitem__(self, ii):
         return self._timestamps[ii]
@@ -128,11 +141,14 @@ class TimestampTimeSeries(TemporalData):
 
     @property
     def stop(self):
-        return timestamps[-1]
+        return self.timestamps[-1]
 
     @property
     def start(self):
-        return timestamps[0]
+        return self.timestamps[0]
+
+    def __len__(self):
+        return len(self.timestamps)
 
     def set_master_timeline(self, other_TimeSeries, offset, offset_unit):
         assert offset_unit in TIME_UNIT_LIST
@@ -155,11 +171,10 @@ class PeriodicTimeSeries(TemporalData):
     
     def __init__(self, start, rate, unit):
         assert unit in TIME_UNIT_LIST
-        super(PeriodicTimeSeries, self).__init__()
+        super(PeriodicTimeSeries, self).__init__(unit)
 
         self._start = start
         self._rate = rate
-        self._unit = unit
 
     @property
     def start(self):
@@ -272,9 +287,17 @@ if __name__ == "__main__":
     # tmp.set_master_timeline(ts, 1, MS)
     # print tmp.start, tmp.stop, tmp.duration
 
-    # a = DurationEpoch(10,5,MS)
-    # b = DurationEpoch(10,7,MS)
-    # c = DurationEpoch(20,2,MS)
-    # for e in sorted([c,b,a]):
-    #     print e.start, e.duration
-        
+    a = DurationEpoch(10,25,MS)
+    b = DurationEpoch(10,24,MS)
+    c = DurationEpoch(20,2,MS)
+    for e in TemporalData.sort([c,b,a]):
+        print e.start, e.stop, e.duration
+    print
+    for e in TemporalData.sort([a,b,c], how='end'):
+        print e.start, e.stop,  e.duration
+    print
+    for e in TemporalData.sort([a,b,c], how='duration'):
+        print e.start, e.stop,  e.duration
+    print
+    for e in TemporalData.sort([a,b,c], how='duration', reverse=True):
+        print e.start, e.stop,  e.duration
